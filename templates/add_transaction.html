@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="panel">
+  <h1>Add Transaction</h1>
+  <form method="post" class="form-grid">
+    <label>Type</label>
+    <select name="type" required>
+      <option value="expense">Expense</option>
+      <option value="income">Income</option>
+    </select>
+
+    <label>Category</label>
+    <input list="category-options" name="category" required>
+    <datalist id="category-options">
+      {% for category in categories %}
+      <option value="{{ category }}"></option>
+      {% endfor %}
+    </datalist>
+
+    <label>Amount</label>
+    <input type="number" step="0.01" min="0.01" name="amount" required>
+
+    <label>Date</label>
+    <input type="date" name="tx_date" value="{{ today }}" required>
+
+    <label>Notes</label>
+    <textarea name="notes" rows="3" placeholder="Optional"></textarea>
+
+    <button type="submit">Save Transaction</button>
+  </form>
+</section>
+{% endblock %}

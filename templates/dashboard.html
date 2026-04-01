@@ -1,0 +1,86 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="panel">
+  <h1>Welcome, {{ user_name }}</h1>
+  <p class="muted">Current month: {{ month_key }}</p>
+
+  <div class="stats-grid">
+    <article class="stat-card">
+      <h3>Monthly Budget</h3>
+      <p>Rs {{ '%.2f'|format(budget) }}</p>
+    </article>
+    <article class="stat-card">
+      <h3>Income</h3>
+      <p>Rs {{ '%.2f'|format(income_total) }}</p>
+    </article>
+    <article class="stat-card">
+      <h3>Expenses</h3>
+      <p>Rs {{ '%.2f'|format(expense_total) }}</p>
+    </article>
+    <article class="stat-card">
+      <h3>Savings</h3>
+      <p>Rs {{ '%.2f'|format(savings) }}</p>
+    </article>
+    <article class="stat-card">
+      <h3>Budget Left</h3>
+      <p>Rs {{ '%.2f'|format(remaining) }}</p>
+    </article>
+  </div>
+
+  <form action="{{ url_for('update_budget') }}" method="post" class="inline-form">
+    <label>Set Monthly Budget</label>
+    <input type="number" step="0.01" min="0" name="monthly_budget" value="{{ '%.2f'|format(budget) }}" required>
+    <button type="submit">Update</button>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Recent Transactions</h2>
+  {% if recent_transactions %}
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Type</th>
+        <th>Category</th>
+        <th>Amount</th>
+        <th>Notes</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for tx in recent_transactions %}
+      <tr>
+        <td>{{ tx['tx_date'] }}</td>
+        <td>{{ tx['type'] }}</td>
+        <td>{{ tx['category'] }}</td>
+        <td>Rs {{ '%.2f'|format(tx['amount']) }}</td>
+        <td>{{ tx['notes'] or '-' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No transactions yet.</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Goal Progress</h2>
+  {% if goals %}
+  <div class="goal-list">
+    {% for goal in goals %}
+    <article class="goal-card">
+      <div class="goal-header">
+        <strong>{{ goal.title }}</strong>
+        <span>{{ goal.status }}</span>
+      </div>
+      <p>Rs {{ '%.2f'|format(goal.current_amount) }} / Rs {{ '%.2f'|format(goal.target_amount) }}</p>
+      <div class="progress"><span style="width: {{ '%.0f'|format(goal.progress) }}%;"></span></div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="muted">No goals added yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

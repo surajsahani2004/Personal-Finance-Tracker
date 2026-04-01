@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="auth-card">
+  <h1>Register</h1>
+  <form method="post" class="form-grid">
+    <label>Full Name</label>
+    <input type="text" name="full_name" required>
+
+    <label>Email</label>
+    <input type="email" name="email" required>
+
+    <label>Password</label>
+    <input type="password" name="password" required>
+
+    <label>Confirm Password</label>
+    <input type="password" name="confirm_password" required>
+
+    <button type="submit">Create Account</button>
+  </form>
+  <p class="muted">Already have an account? <a href="{{ url_for('login') }}">Login</a></p>
+</section>
+{% endblock %}

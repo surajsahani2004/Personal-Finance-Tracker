@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="panel">
+  <h1>Reports</h1>
+  <p class="muted">Charts are generated from your saved transactions.</p>
+
+  <div class="chart-grid">
+    <article class="chart-card">
+      <h3>Expense by Category</h3>
+      <canvas id="categoryChart"></canvas>
+    </article>
+    <article class="chart-card">
+      <h3>Monthly Expenses</h3>
+      <canvas id="expenseChart"></canvas>
+    </article>
+    <article class="chart-card">
+      <h3>Monthly Savings</h3>
+      <canvas id="savingsChart"></canvas>
+    </article>
+  </div>
+</section>
+
+<script defer src="{{ url_for('static', filename='js/reports.js') }}"></script>
+{% endblock %}
