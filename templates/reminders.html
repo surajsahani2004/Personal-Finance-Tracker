@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="panel">
+  <h1>Google Calendar Notifications</h1>
+  <p class="muted">Create reminder events with popup/email alerts in your Google Calendar.</p>
+
+  {% if not oauth_ready %}
+  <p class="alert error">Google OAuth config missing hai. Local ke liye <code>client_secret.json</code> add karo, deploy ke liye <code>GOOGLE_OAUTH_CLIENT_JSON</code> env var set karo.</p>
+  {% endif %}
+
+  <div class="calendar-actions">
+    {% if calendar_connected %}
+      <span class="status-chip success">Calendar Connected</span>
+      <form method="post" action="{{ url_for('calendar_disconnect') }}">
+        <button type="submit" class="secondary-btn">Disconnect</button>
+      </form>
+    {% else %}
+      <span class="status-chip warning">Calendar Not Connected</span>
+      {% if oauth_ready %}
+      <a class="button-link" href="{{ url_for('calendar_connect') }}">Connect Google Calendar</a>
+      {% endif %}
+    {% endif %}
+  </div>
+</section>
+
+<section class="panel">
+  <h2>Create Reminder</h2>
+  <form method="post" class="form-grid">
+    <label>Title</label>
+    <input type="text" name="title" placeholder="Pay Electricity Bill" required>
+
+    <label>Description</label>
+    <textarea name="description" rows="3" placeholder="Optional note"></textarea>
+
+    <label>Date</label>
+    <input type="date" name="reminder_date" value="{{ today }}" required>
+
+    <label>Time</label>
+    <input type="time" name="reminder_time" value="{{ current_time }}" required>
+
+    <label>Notify Before (minutes)</label>
+    <input type="number" name="notify_before" min="0" max="1440" value="10" required>
+
+    <button type="submit">Create Calendar Reminder</button>
+  </form>
+</section>
+{% endblock %}

@@ -133,6 +133,28 @@ button {
 
 button:hover { background: var(--accent-dark); }
 
+.secondary-btn {
+  background: #475467;
+}
+
+.secondary-btn:hover {
+  background: #344054;
+}
+
+.button-link {
+  display: inline-block;
+  text-decoration: none;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.button-link:hover {
+  background: var(--accent-dark);
+}
+
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -169,6 +191,40 @@ button:hover { background: var(--accent-dark); }
 .goal-list {
   display: grid;
   gap: 12px;
+}
+
+.calendar-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.calendar-actions form {
+  margin: 0;
+}
+
+.calendar-actions button {
+  width: auto;
+}
+
+.status-chip {
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.status-chip.success {
+  background: #ecfdf3;
+  color: #027a48;
+  border: 1px solid #abefc6;
+}
+
+.status-chip.warning {
+  background: #fffaeb;
+  color: #b54708;
+  border: 1px solid #fedf89;
 }
 
 .goal-card {

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
-from datetime import date
+from datetime import date, datetime, timedelta
 from functools import wraps
 
 from flask import (
@@ -15,13 +16,23 @@ from flask import (
     session,
     url_for,
 )
+from google.auth.transport.requests import Request as GoogleAuthRequest
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import Flow
+from googleapiclient.discovery import build
 from werkzeug.security import check_password_hash, generate_password_hash
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, "finance.db")
+DB_PATH = os.getenv("DB_PATH", os.path.join(BASE_DIR, "finance.db"))
+GOOGLE_CLIENT_SECRETS_FILE = os.path.join(BASE_DIR, "client_secret.json")
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://127.0.0.1:5000/oauth2callback")
+APP_TIMEZONE = os.getenv("APP_TIMEZONE", "Asia/Kolkata")
+GOOGLE_SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "dev-secret-key-change-me")
+app.config["SESSION_COOKIE_SECURE"] = os.getenv("SESSION_COOKIE_SECURE", "0") == "1"
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
 CATEGORIES = [
     "Food",
@@ -80,6 +91,13 @@ def init_db() -> None:
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 FOREIGN KEY(user_id) REFERENCES users(id)
             );
+
+            CREATE TABLE IF NOT EXISTS google_tokens (
+                user_id INTEGER PRIMARY KEY,
+                credentials_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            );
             """
         )
 
@@ -97,6 +115,82 @@ def login_required(view_func):
 
 def current_user_id() -> int:
     return int(session["user_id"])
+
+
+def get_google_oauth_config() -> dict | None:
+    json_env = os.getenv("GOOGLE_OAUTH_CLIENT_JSON", "").strip()
+    if json_env:
+        try:
+            return json.loads(json_env)
+        except json.JSONDecodeError:
+            return None
+
+    if os.path.exists(GOOGLE_CLIENT_SECRETS_FILE):
+        try:
+            with open(GOOGLE_CLIENT_SECRETS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, json.JSONDecodeError):
+            return None
+
+    return None
+
+
+def has_google_oauth_config() -> bool:
+    return get_google_oauth_config() is not None
+
+
+def save_google_credentials(user_id: int, credentials_json: str) -> None:
+    with get_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO google_tokens(user_id, credentials_json, updated_at)
+            VALUES (?, ?, datetime('now'))
+            ON CONFLICT(user_id) DO UPDATE SET
+                credentials_json = excluded.credentials_json,
+                updated_at = datetime('now')
+            """,
+            (user_id, credentials_json),
+        )
+
+
+def load_google_credentials(user_id: int) -> Credentials | None:
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT credentials_json FROM google_tokens WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+
+    if not row:
+        return None
+
+    try:
+        token_info = json.loads(row["credentials_json"])
+        credentials = Credentials.from_authorized_user_info(token_info, GOOGLE_SCOPES)
+    except Exception:
+        clear_google_credentials(user_id)
+        return None
+
+    if credentials.expired and credentials.refresh_token:
+        try:
+            credentials.refresh(GoogleAuthRequest())
+            save_google_credentials(user_id, credentials.to_json())
+        except Exception:
+            clear_google_credentials(user_id)
+            return None
+
+    return credentials
+
+
+def clear_google_credentials(user_id: int) -> None:
+    with get_db() as conn:
+        conn.execute("DELETE FROM google_tokens WHERE user_id = ?", (user_id,))
+
+
+def build_calendar_service(user_id: int):
+    credentials = load_google_credentials(user_id)
+    if not credentials:
+        return None
+    return build("calendar", "v3", credentials=credentials)
 
 
 @app.get("/")
@@ -422,6 +516,137 @@ def reports():
     return render_template("reports.html")
 
 
+@app.get("/calendar/connect")
+@login_required
+def calendar_connect():
+    oauth_config = get_google_oauth_config()
+    if not oauth_config:
+        flash("Google OAuth config missing. Add client_secret.json or set GOOGLE_OAUTH_CLIENT_JSON.", "error")
+        return redirect(url_for("reminders"))
+
+    flow = Flow.from_client_config(
+        oauth_config,
+        scopes=GOOGLE_SCOPES,
+        redirect_uri=GOOGLE_REDIRECT_URI,
+    )
+    auth_url, state = flow.authorization_url(
+        access_type="offline",
+        include_granted_scopes="true",
+        prompt="consent",
+    )
+    session["google_oauth_state"] = state
+    return redirect(auth_url)
+
+
+@app.get("/oauth2callback")
+@login_required
+def oauth2callback():
+    state = session.get("google_oauth_state")
+    if not state:
+        flash("Missing OAuth state. Please connect calendar again.", "error")
+        return redirect(url_for("reminders"))
+
+    try:
+        oauth_config = get_google_oauth_config()
+        if not oauth_config:
+            flash("Google OAuth config missing. Add client_secret.json or set GOOGLE_OAUTH_CLIENT_JSON.", "error")
+            return redirect(url_for("reminders"))
+
+        flow = Flow.from_client_config(
+            oauth_config,
+            scopes=GOOGLE_SCOPES,
+            state=state,
+            redirect_uri=GOOGLE_REDIRECT_URI,
+        )
+        flow.fetch_token(authorization_response=request.url)
+        save_google_credentials(current_user_id(), flow.credentials.to_json())
+        flash("Google Calendar connected successfully.", "success")
+    except Exception:
+        flash("Google Calendar connect failed. Check redirect URI and OAuth settings.", "error")
+
+    return redirect(url_for("reminders"))
+
+
+@app.post("/calendar/disconnect")
+@login_required
+def calendar_disconnect():
+    clear_google_credentials(current_user_id())
+    flash("Google Calendar disconnected.", "success")
+    return redirect(url_for("reminders"))
+
+
+@app.route("/reminders", methods=["GET", "POST"])
+@login_required
+def reminders():
+    user_id = current_user_id()
+    calendar_connected = load_google_credentials(user_id) is not None
+
+    if request.method == "POST":
+        title = request.form.get("title", "").strip()
+        description = request.form.get("description", "").strip()
+        reminder_date = request.form.get("reminder_date", "").strip()
+        reminder_time = request.form.get("reminder_time", "").strip()
+        notify_before_raw = request.form.get("notify_before", "10").strip()
+
+        if not calendar_connected:
+            flash("Please connect Google Calendar first.", "error")
+            return redirect(url_for("reminders"))
+
+        if not title or not reminder_date or not reminder_time:
+            flash("Title, date, and time are required.", "error")
+            return redirect(url_for("reminders"))
+
+        try:
+            notify_before = int(notify_before_raw)
+            notify_before = max(0, min(notify_before, 1440))
+            start_dt = datetime.strptime(f"{reminder_date} {reminder_time}", "%Y-%m-%d %H:%M")
+            end_dt = start_dt + timedelta(minutes=30)
+        except ValueError:
+            flash("Invalid date/time or reminder minutes.", "error")
+            return redirect(url_for("reminders"))
+
+        service = build_calendar_service(user_id)
+        if not service:
+            flash("Google Calendar connection expired. Please connect again.", "error")
+            return redirect(url_for("reminders"))
+
+        event_body = {
+            "summary": title,
+            "description": description,
+            "start": {
+                "dateTime": start_dt.isoformat(),
+                "timeZone": APP_TIMEZONE,
+            },
+            "end": {
+                "dateTime": end_dt.isoformat(),
+                "timeZone": APP_TIMEZONE,
+            },
+            "reminders": {
+                "useDefault": False,
+                "overrides": [
+                    {"method": "popup", "minutes": notify_before},
+                    {"method": "email", "minutes": notify_before},
+                ],
+            },
+        }
+
+        try:
+            service.events().insert(calendarId="primary", body=event_body).execute()
+            flash("Reminder created in Google Calendar.", "success")
+            return redirect(url_for("reminders"))
+        except Exception:
+            flash("Failed to create reminder. Verify Calendar API and OAuth scopes.", "error")
+            return redirect(url_for("reminders"))
+
+    return render_template(
+        "reminders.html",
+        oauth_ready=has_google_oauth_config(),
+        calendar_connected=calendar_connected,
+        today=date.today().isoformat(),
+        current_time=datetime.now().strftime("%H:%M"),
+    )
+
+
 @app.get("/api/reports")
 @login_required
 def api_reports():
@@ -482,4 +707,4 @@ init_db()
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")), debug=True)

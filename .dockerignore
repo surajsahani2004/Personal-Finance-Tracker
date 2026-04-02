@@ -1,6 +1,7 @@
-__pycache__/
+.git
+.venv
+__pycache__
 *.pyc
-.venv/
 finance.db
 client_secret.json
 client_secret_*.json
