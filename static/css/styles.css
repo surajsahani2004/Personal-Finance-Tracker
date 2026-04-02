@@ -211,7 +211,13 @@ button:hover { background: var(--accent-dark); }
   border-radius: 12px;
   padding: 12px;
   background: #fcfcfd;
-  min-height: 260px;
+  min-height: 320px;
+  height: 320px;
+}
+
+.chart-card canvas {
+  width: 100% !important;
+  height: 250px !important;
 }
 
 @media (max-width: 760px) {
@@ -227,5 +233,18 @@ button:hover { background: var(--accent-dark); }
 
   .nav-links {
     width: 100%;
+  }
+
+  .chart-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .chart-card {
+    min-height: 280px;
+    height: 280px;
+  }
+
+  .chart-card canvas {
+    height: 210px !important;
   }
 }

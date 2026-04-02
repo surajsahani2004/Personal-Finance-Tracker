@@ -14,6 +14,16 @@ async function loadReports() {
   }
 }
 
+const baseChartOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: {
+      position: 'bottom'
+    }
+  }
+};
+
 function renderCategoryChart(rows) {
   const ctx = document.getElementById('categoryChart');
   if (!ctx) return;
@@ -33,10 +43,7 @@ function renderCategoryChart(rows) {
         ]
       }]
     },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false
-    }
+    options: baseChartOptions
   });
 }
 
@@ -54,12 +61,20 @@ function renderExpenseChart(rows) {
       datasets: [{
         label: 'Expenses',
         data: values.length ? values : [0],
-        backgroundColor: '#0891b2'
+        backgroundColor: '#0891b2',
+        maxBarThickness: 48
       }]
     },
     options: {
-      responsive: true,
-      maintainAspectRatio: false
+      ...baseChartOptions,
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: {
+            maxTicksLimit: 6
+          }
+        }
+      }
     }
   });
 }
@@ -81,12 +96,20 @@ function renderSavingsChart(rows) {
         borderColor: '#0f766e',
         backgroundColor: 'rgba(15, 118, 110, 0.12)',
         fill: true,
-        tension: 0.25
+        tension: 0.25,
+        pointRadius: 4
       }]
     },
     options: {
-      responsive: true,
-      maintainAspectRatio: false
+      ...baseChartOptions,
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: {
+            maxTicksLimit: 6
+          }
+        }
+      }
     }
   });
 }
