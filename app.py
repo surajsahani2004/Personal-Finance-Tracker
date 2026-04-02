@@ -9,6 +9,7 @@ from functools import wraps
 from flask import (
     Flask,
     flash,
+    g,
     jsonify,
     redirect,
     render_template,
@@ -49,14 +50,38 @@ CATEGORIES = [
 ]
 
 
-def get_db() -> sqlite3.Connection:
+_oauth_file_cache: dict | None = None
+_oauth_file_cache_mtime: float | None = None
+_oauth_env_cache: dict | None = None
+_oauth_env_cache_raw: str | None = None
+
+
+def new_db_connection() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA synchronous = NORMAL")
+    conn.execute("PRAGMA busy_timeout = 5000")
     return conn
 
 
+def get_db() -> sqlite3.Connection:
+    if "db_conn" not in g:
+        g.db_conn = new_db_connection()
+    return g.db_conn
+
+
+@app.teardown_appcontext
+def close_db(_: BaseException | None) -> None:
+    conn = g.pop("db_conn", None)
+    if conn is not None:
+        conn.close()
+
+
 def init_db() -> None:
-    with get_db() as conn:
+    conn = new_db_connection()
+    try:
         conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS users (
@@ -98,8 +123,23 @@ def init_db() -> None:
                 updated_at TEXT NOT NULL DEFAULT (datetime('now')),
                 FOREIGN KEY(user_id) REFERENCES users(id)
             );
+
+            CREATE INDEX IF NOT EXISTS idx_transactions_user_type_date
+            ON transactions(user_id, type, tx_date);
+
+            CREATE INDEX IF NOT EXISTS idx_transactions_user_date
+            ON transactions(user_id, tx_date);
+
+            CREATE INDEX IF NOT EXISTS idx_transactions_user_type_category
+            ON transactions(user_id, type, category);
+
+            CREATE INDEX IF NOT EXISTS idx_goals_user_status_due
+            ON goals(user_id, status, due_date);
             """
         )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def login_required(view_func):
@@ -117,19 +157,52 @@ def current_user_id() -> int:
     return int(session["user_id"])
 
 
+def get_month_bounds(target_date: date | None = None) -> tuple[str, str]:
+    base = target_date or date.today()
+    start = base.replace(day=1)
+    if start.month == 12:
+        next_month = start.replace(year=start.year + 1, month=1)
+    else:
+        next_month = start.replace(month=start.month + 1)
+    return start.isoformat(), next_month.isoformat()
+
+
+def shift_month_start(month_start: date, delta_months: int) -> date:
+    month_zero = month_start.month - 1 + delta_months
+    year = month_start.year + (month_zero // 12)
+    month = (month_zero % 12) + 1
+    return month_start.replace(year=year, month=month)
+
+
 def get_google_oauth_config() -> dict | None:
+    global _oauth_env_cache, _oauth_env_cache_raw, _oauth_file_cache, _oauth_file_cache_mtime
+
     json_env = os.getenv("GOOGLE_OAUTH_CLIENT_JSON", "").strip()
     if json_env:
+        if json_env == _oauth_env_cache_raw:
+            return _oauth_env_cache
         try:
-            return json.loads(json_env)
+            _oauth_env_cache = json.loads(json_env)
+            _oauth_env_cache_raw = json_env
+            return _oauth_env_cache
         except json.JSONDecodeError:
+            _oauth_env_cache = None
+            _oauth_env_cache_raw = json_env
             return None
 
     if os.path.exists(GOOGLE_CLIENT_SECRETS_FILE):
         try:
+            mtime = os.path.getmtime(GOOGLE_CLIENT_SECRETS_FILE)
+            if _oauth_file_cache is not None and _oauth_file_cache_mtime == mtime:
+                return _oauth_file_cache
+
             with open(GOOGLE_CLIENT_SECRETS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                _oauth_file_cache = json.load(f)
+                _oauth_file_cache_mtime = mtime
+                return _oauth_file_cache
         except (OSError, json.JSONDecodeError):
+            _oauth_file_cache = None
+            _oauth_file_cache_mtime = None
             return None
 
     return None
@@ -266,7 +339,8 @@ def logout():
 @login_required
 def dashboard():
     user_id = current_user_id()
-    month_key = date.today().strftime("%Y-%m")
+    month_start, next_month_start = get_month_bounds()
+    month_key = month_start[:7]
 
     with get_db() as conn:
         user = conn.execute(
@@ -274,27 +348,18 @@ def dashboard():
             (user_id,),
         ).fetchone()
 
-        expense_total = conn.execute(
+        monthly_totals = conn.execute(
             """
-            SELECT COALESCE(SUM(amount), 0)
+            SELECT
+                COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) AS expense_total,
+                COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) AS income_total
             FROM transactions
             WHERE user_id = ?
-              AND type = 'expense'
-              AND strftime('%Y-%m', tx_date) = ?
+              AND tx_date >= ?
+              AND tx_date < ?
             """,
-            (user_id, month_key),
-        ).fetchone()[0]
-
-        income_total = conn.execute(
-            """
-            SELECT COALESCE(SUM(amount), 0)
-            FROM transactions
-            WHERE user_id = ?
-              AND type = 'income'
-              AND strftime('%Y-%m', tx_date) = ?
-            """,
-            (user_id, month_key),
-        ).fetchone()[0]
+            (user_id, month_start, next_month_start),
+        ).fetchone()
 
         recent_transactions = conn.execute(
             """
@@ -335,8 +400,8 @@ def dashboard():
         )
 
     budget = float(user["monthly_budget"]) if user else 0.0
-    expense_total = float(expense_total)
-    income_total = float(income_total)
+    expense_total = float(monthly_totals["expense_total"]) if monthly_totals else 0.0
+    income_total = float(monthly_totals["income_total"]) if monthly_totals else 0.0
 
     return render_template(
         "dashboard.html",
@@ -651,6 +716,8 @@ def reminders():
 @login_required
 def api_reports():
     user_id = current_user_id()
+    month_start_iso, next_month_iso = get_month_bounds()
+    six_month_start_iso = shift_month_start(date.fromisoformat(month_start_iso), -5).isoformat()
 
     with get_db() as conn:
         category_rows = conn.execute(
@@ -668,12 +735,15 @@ def api_reports():
             """
             SELECT strftime('%Y-%m', tx_date) AS month, ROUND(SUM(amount), 2) AS total
             FROM transactions
-            WHERE user_id = ? AND type = 'expense'
+            WHERE user_id = ?
+              AND type = 'expense'
+              AND tx_date >= ?
+              AND tx_date < ?
             GROUP BY month
             ORDER BY month DESC
             LIMIT 6
             """,
-            (user_id,),
+            (user_id, six_month_start_iso, next_month_iso),
         ).fetchall()
 
         monthly_savings_rows = conn.execute(
@@ -683,11 +753,13 @@ def api_reports():
                 ROUND(SUM(CASE WHEN type = 'income' THEN amount ELSE -amount END), 2) AS savings
             FROM transactions
             WHERE user_id = ?
+              AND tx_date >= ?
+              AND tx_date < ?
             GROUP BY month
             ORDER BY month DESC
             LIMIT 6
             """,
-            (user_id,),
+            (user_id, six_month_start_iso, next_month_iso),
         ).fetchall()
 
     category_totals = [dict(row) for row in category_rows]
