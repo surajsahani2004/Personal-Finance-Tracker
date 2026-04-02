@@ -55,6 +55,29 @@ Anup pal/
 - Default secret key is for development only. Set `SECRET_KEY` in production.
 - Never commit `client_secret.json` to GitHub.
 
+## Deploy On Render
+1. Push latest code to GitHub (already done for this project).
+2. In Render dashboard:
+   - New + -> Blueprint
+   - Select this repository
+   - Render will read `render.yaml` and create web service
+3. After first deploy, copy your app URL:
+   - `https://YOUR_RENDER_APP.onrender.com`
+4. Set/update these env vars in Render service:
+   - `GOOGLE_REDIRECT_URI=https://YOUR_RENDER_APP.onrender.com/oauth2callback`
+   - `GOOGLE_OAUTH_CLIENT_JSON=<contents of client_secret.json as single-line JSON>`
+   - One-line JSON helper:
+     - `python -c "import json;print(json.dumps(json.load(open('client_secret.json', encoding='utf-8'))))"`
+5. In Google Cloud OAuth Client, add:
+   - Authorized JavaScript origin: `https://YOUR_RENDER_APP.onrender.com`
+   - Authorized redirect URI: `https://YOUR_RENDER_APP.onrender.com/oauth2callback`
+6. Redeploy service from Render dashboard after env var update.
+
+### Render Notes
+- This setup uses SQLite at `/tmp/finance.db` for easy deployment.
+- `/tmp` storage is ephemeral, so data may reset on restart/redeploy.
+- For persistent production data, migrate to Render PostgreSQL or another managed DB.
+
 ## Deploy On Google Cloud Run
 1. Install and login to Google Cloud CLI:
    - `gcloud auth login`

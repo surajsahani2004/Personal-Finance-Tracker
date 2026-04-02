@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: personal-finance-tracker
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 0
+    healthCheckPath: /
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: APP_TIMEZONE
+        value: Asia/Kolkata
+      - key: SESSION_COOKIE_SECURE
+        value: "1"
+      - key: DB_PATH
+        value: /tmp/finance.db
+      - key: GOOGLE_REDIRECT_URI
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_JSON
+        sync: false
