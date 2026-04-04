@@ -10,6 +10,7 @@ A complete mini-project built with Flask + SQLite + Chart.js.
 - Savings goals with progress updates
 - Reports dashboard with Pie, Bar, and Line charts
 - Google Calendar reminder notifications (OAuth)
+- Gemini AI chat board for helper assistant
 
 ## Tech Stack
 - Frontend: HTML, CSS, JavaScript
@@ -50,6 +51,15 @@ Anup pal/
 5. Place `client_secret.json` in project root (same folder as `app.py`).
 6. Run app and open `Reminders` page, then click `Connect Google Calendar`.
 
+## Gemini AI Setup (For Chat Board)
+1. Create API key in Google AI Studio.
+2. Set environment variable before running app:
+   - PowerShell:
+     - `$env:GEMINI_API_KEY="YOUR_GEMINI_API_KEY"`
+3. Optional model override:
+   - `$env:GEMINI_MODEL="gemini-2.0-flash"`
+4. Open app and go to `AI Chat`.
+
 ## Notes
 - Database tables are auto-created on first run.
 - Default secret key is for development only. Set `SECRET_KEY` in production.
@@ -66,6 +76,8 @@ Anup pal/
 4. Set/update these env vars in Render service:
    - `GOOGLE_REDIRECT_URI=https://YOUR_RENDER_APP.onrender.com/oauth2callback`
    - `GOOGLE_OAUTH_CLIENT_JSON=<contents of client_secret.json as single-line JSON>`
+   - `GEMINI_API_KEY=<your Gemini API key>`
+   - `GEMINI_MODEL=gemini-2.0-flash` (optional)
    - One-line JSON helper:
      - `python -c "import json;print(json.dumps(json.load(open('client_secret.json', encoding='utf-8'))))"`
 5. In Google Cloud OAuth Client, add:

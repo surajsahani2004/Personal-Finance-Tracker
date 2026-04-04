@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import urllib.error
+import urllib.parse
+import urllib.request
 from datetime import date, datetime, timedelta
 from functools import wraps
 
@@ -29,6 +32,7 @@ GOOGLE_CLIENT_SECRETS_FILE = os.path.join(BASE_DIR, "client_secret.json")
 GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://127.0.0.1:5000/oauth2callback")
 APP_TIMEZONE = os.getenv("APP_TIMEZONE", "Asia/Kolkata")
 GOOGLE_SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "dev-secret-key-change-me")
@@ -264,6 +268,77 @@ def build_calendar_service(user_id: int):
     if not credentials:
         return None
     return build("calendar", "v3", credentials=credentials)
+
+
+def get_gemini_api_key() -> str:
+    return os.getenv("GEMINI_API_KEY", "").strip()
+
+
+def build_gemini_contents(message: str, history: list[dict]) -> list[dict]:
+    contents: list[dict] = []
+    for item in history[-12:]:
+        role = "model" if item.get("role") == "assistant" else "user"
+        text = str(item.get("text", "")).strip()
+        if not text:
+            continue
+        contents.append({"role": role, "parts": [{"text": text}]})
+
+    contents.append({"role": "user", "parts": [{"text": message}]})
+    return contents
+
+
+def generate_gemini_reply(message: str, history: list[dict]) -> str:
+    api_key = get_gemini_api_key()
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY is missing on server.")
+
+    model_name = os.getenv("GEMINI_MODEL", GEMINI_MODEL).strip() or GEMINI_MODEL
+    endpoint = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{urllib.parse.quote(model_name, safe='')}:generateContent"
+        f"?key={urllib.parse.quote(api_key, safe='')}"
+    )
+
+    payload = {
+        "contents": build_gemini_contents(message, history),
+        "generationConfig": {
+            "temperature": 0.7,
+            "maxOutputTokens": 800,
+        },
+    }
+
+    request_data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        endpoint,
+        data=request_data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=35) as response:
+            raw = response.read().decode("utf-8")
+            data = json.loads(raw)
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="ignore")
+        raise RuntimeError(f"Gemini API HTTP {exc.code}: {detail[:180]}") from exc
+    except (urllib.error.URLError, TimeoutError) as exc:
+        raise RuntimeError("Network error while calling Gemini API.") from exc
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("Invalid JSON response from Gemini API.") from exc
+
+    candidates = data.get("candidates", [])
+    if not candidates:
+        raise RuntimeError("No response candidates returned by Gemini API.")
+
+    parts = candidates[0].get("content", {}).get("parts", [])
+    text_chunks = [part.get("text", "").strip() for part in parts if part.get("text")]
+    reply = "\n".join(chunk for chunk in text_chunks if chunk)
+
+    if not reply:
+        raise RuntimeError("Gemini response was empty.")
+
+    return reply
 
 
 @app.get("/")
@@ -579,6 +654,35 @@ def update_goal(goal_id: int):
 @login_required
 def reports():
     return render_template("reports.html")
+
+
+@app.get("/ai-chat")
+@login_required
+def ai_chat():
+    return render_template("ai_chat.html", gemini_ready=bool(get_gemini_api_key()))
+
+
+@app.post("/api/ai-chat")
+@login_required
+def api_ai_chat():
+    payload = request.get_json(silent=True) or {}
+    message = str(payload.get("message", "")).strip()
+    history = payload.get("history") or []
+
+    if not message:
+        return jsonify({"error": "Message is required."}), 400
+
+    if not isinstance(history, list):
+        history = []
+
+    try:
+        reply = generate_gemini_reply(message, history)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 502
+
+    return jsonify({"reply": reply})
 
 
 @app.get("/calendar/connect")

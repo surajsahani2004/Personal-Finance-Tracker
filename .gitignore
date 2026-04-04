@@ -4,3 +4,4 @@ __pycache__/
 finance.db
 client_secret.json
 client_secret_*.json
+.env

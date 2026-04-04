@@ -1,0 +1,78 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="panel ai-chat-shell">
+  <h1>AI Chat Board</h1>
+  <p class="muted">Ask finance doubts, planning questions, or get quick help from Gemini AI.</p>
+
+  {% if not gemini_ready %}
+  <p class="alert error"><code>GEMINI_API_KEY</code> server env var missing hai. Key set karne ke baad chat run hoga.</p>
+  {% endif %}
+
+  <div id="chatMessages" class="chat-messages">
+    <div class="chat-bubble assistant">
+      Hello! Main aapka AI helper hoon. Aaj kis cheez me help chahiye?
+    </div>
+  </div>
+
+  <form id="chatForm" class="chat-form">
+    <textarea id="chatInput" rows="3" placeholder="Type your message..." required></textarea>
+    <button type="submit">Send</button>
+  </form>
+</section>
+
+<script>
+  const chatForm = document.getElementById('chatForm');
+  const chatInput = document.getElementById('chatInput');
+  const chatMessages = document.getElementById('chatMessages');
+  const chatHistory = [];
+
+  function addBubble(role, text) {
+    const div = document.createElement('div');
+    div.className = `chat-bubble ${role}`;
+    div.textContent = text;
+    chatMessages.appendChild(div);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+
+  async function sendMessage(message) {
+    const response = await fetch('/api/ai-chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, history: chatHistory })
+    });
+    return response.json();
+  }
+
+  chatForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const message = chatInput.value.trim();
+    if (!message) return;
+
+    addBubble('user', message);
+    chatHistory.push({ role: 'user', text: message });
+    chatInput.value = '';
+
+    const loadingBubble = document.createElement('div');
+    loadingBubble.className = 'chat-bubble assistant';
+    loadingBubble.textContent = 'Thinking...';
+    chatMessages.appendChild(loadingBubble);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+
+    try {
+      const data = await sendMessage(message);
+      loadingBubble.remove();
+
+      if (data.error) {
+        addBubble('assistant', `Error: ${data.error}`);
+        return;
+      }
+
+      addBubble('assistant', data.reply);
+      chatHistory.push({ role: 'assistant', text: data.reply });
+    } catch (error) {
+      loadingBubble.remove();
+      addBubble('assistant', 'Error: unable to reach AI service right now.');
+    }
+  });
+</script>
+{% endblock %}

@@ -276,6 +276,49 @@ button:hover { background: var(--accent-dark); }
   height: 250px !important;
 }
 
+.ai-chat-shell {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.chat-messages {
+  border: 1px solid #e4e7ec;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 12px;
+  height: 420px;
+  overflow-y: auto;
+  display: grid;
+  gap: 10px;
+}
+
+.chat-bubble {
+  max-width: 85%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+.chat-bubble.user {
+  justify-self: end;
+  background: #0f766e;
+  color: #ffffff;
+}
+
+.chat-bubble.assistant {
+  justify-self: start;
+  background: #ffffff;
+  color: #1d2939;
+  border: 1px solid #d0d5dd;
+}
+
+.chat-form {
+  margin-top: 12px;
+  display: grid;
+  gap: 8px;
+}
+
 @media (max-width: 760px) {
   .inline-form {
     grid-template-columns: 1fr;
